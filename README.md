@@ -13,6 +13,7 @@ A monetization-ready SaaS API for content analysis that includes:
 - Starter, Growth, and Scale plans
 - Monthly request caps
 - JSON responses designed for app integrations
+- A polished landing page and pricing UI for product launches
 - Ready for Stripe checkout once credentials are configured
 
 ## Run locally
@@ -64,6 +65,10 @@ curl -X POST http://localhost:3000/v1/analyze \
 ## Billing
 
 To enable real Stripe checkout, set these environment variables:
+
+```bash
+PUBLIC_BASE_URL=https://your-domain.example.com
+```
 
 ```bash
 STRIPE_SECRET_KEY=sk_test_...

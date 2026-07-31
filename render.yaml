@@ -12,6 +12,20 @@ services:
         generateValue: true
       - key: ADMIN_API_KEY
         generateValue: true
+      - key: PUBLIC_BASE_URL
+        value: https://content-intelligence-api.onrender.com
+      - key: STRIPE_SECRET_KEY
+        value: ""
+      - key: STRIPE_WEBHOOK_SECRET
+        value: ""
+      - key: STRIPE_PRICE_PRO
+        value: ""
+      - key: STRIPE_PRICE_BUSINESS
+        value: ""
+      - key: STRIPE_SUCCESS_URL
+        value: https://content-intelligence-api.onrender.com/billing/success
+      - key: STRIPE_CANCEL_URL
+        value: https://content-intelligence-api.onrender.com/billing/cancel
       - key: DATABASE_URL
         fromDatabase:
           name: content-intelligence-db

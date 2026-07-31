@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -11,6 +13,9 @@ const Stripe = require('stripe');
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-me';
+if (!process.env.JWT_SECRET) {
+  console.warn('JWT_SECRET not set; using development fallback.');
+}
 const adminApiKey = process.env.ADMIN_API_KEY || '';
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -53,6 +58,14 @@ if (stripeSecretKey) {
 }
 
 const pool = connectionString ? new Pool({ connectionString }) : null;
+
+class CheckoutError extends Error {
+  constructor(message, statusCode = 500) {
+    super(message);
+    this.name = 'CheckoutError';
+    this.statusCode = statusCode;
+  }
+}
 
 async function initializeDatabase() {
   if (!pool) {
@@ -303,8 +316,14 @@ function requireAdmin(req, res) {
 }
 
 function buildCheckoutSessionArgs(req, currentUser, selectedPlan) {
-  const successUrl = stripeSuccessUrl || `${req.protocol}://${req.get('host')}/billing/success?session_id={CHECKOUT_SESSION_ID}`;
-  const cancelUrl = stripeCancelUrl || `${req.protocol}://${req.get('host')}/billing/cancel`;
+  const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const successUrl = stripeSuccessUrl || `${baseUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`;
+  const cancelUrl = stripeCancelUrl || `${baseUrl}/billing/cancel`;
+
+  if (!selectedPlan || selectedPlan.id === 'free' || Number(selectedPlan.priceUsd) <= 0) {
+    throw new CheckoutError('Only paid plans can create a Stripe checkout session.', 400);
+  }
+
   const lineItems = [];
 
   if (stripePriceIds[selectedPlan.id]) {
@@ -313,7 +332,7 @@ function buildCheckoutSessionArgs(req, currentUser, selectedPlan) {
     lineItems.push({
       price_data: {
         currency: 'usd',
-        unit_amount: Math.round(selectedPlan.priceUsd * 100),
+        unit_amount: Math.round(Number(selectedPlan.priceUsd) * 100),
         recurring: { interval: 'month' },
         product_data: { name: `${selectedPlan.name} plan` }
       },
@@ -396,7 +415,7 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'content-intelligence-api', status: 'healthy' });
 });
 
-app.get('/', (req, res) => {
+app.get('/api', (req, res) => {
   res.json({
     ok: true,
     message: 'Sellable content intelligence API',
@@ -593,7 +612,8 @@ app.post('/billing/checkout', async (req, res) => {
       const session = await stripe.checkout.sessions.create(buildCheckoutSessionArgs(req, currentUser, selectedPlan));
       return res.json({ ok: true, mode: 'stripe', checkoutUrl: session.url, plan: selectedPlan.id, planPriceUsd: selectedPlan.priceUsd, stripePriceId: stripePriceIds[selectedPlan.id] || null });
     } catch (error) {
-      return res.status(500).json({ ok: false, error: error.message });
+      const statusCode = error.statusCode || 500;
+      return res.status(statusCode).json({ ok: false, error: error.message });
     }
   }
 
