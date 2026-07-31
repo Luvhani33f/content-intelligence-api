@@ -12,9 +12,13 @@ const Stripe = require('stripe');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
-const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-me';
+const jwtSecret = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : crypto.randomBytes(32).toString('hex'));
 if (!process.env.JWT_SECRET) {
-  console.warn('JWT_SECRET not set; using development fallback.');
+  if (process.env.NODE_ENV === 'production') {
+    console.error('JWT_SECRET environment variable is required in production.');
+    process.exit(1);
+  }
+  console.warn('JWT_SECRET not set; using a generated development secret.');
 }
 const adminApiKey = process.env.ADMIN_API_KEY || '';
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
@@ -400,11 +404,56 @@ function analyzeText(text) {
 
 app.use(cors());
 app.use(express.static(publicDir));
-app.use((req, res, next) => {
-  if (req.path === '/billing/webhook') {
-    return express.raw({ type: 'application/json' })(req, res, next);
+app.use(express.json());
+
+app.post('/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const signature = req.headers['stripe-signature'];
+  const payload = req.body ? (Buffer.isBuffer(req.body) ? JSON.parse(req.body.toString('utf8')) : req.body) : {};
+
+  if (!stripeWebhookSecret) {
+    if (payload.type === 'checkout.session.completed') {
+      const planId = payload.data?.object?.metadata?.planId || 'pro';
+      const userId = payload.data?.object?.metadata?.userId;
+      const email = payload.data?.object?.customer_email || '';
+      const user = userId ? await getUserById(userId) : await getUserByEmail(email);
+      if (user) {
+        await applyPlanChange(user, planId);
+      }
+    }
+
+    return res.json({ ok: true, received: payload.type || 'mock-event', mode: 'mock' });
   }
-  return express.json()(req, res, next);
+
+  if (!signature) {
+    return res.status(400).json({ ok: false, error: 'Stripe signature missing.' });
+  }
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, signature, stripeWebhookSecret);
+  } catch (error) {
+    return res.status(400).json({ ok: false, error: 'Webhook signature verification failed.' });
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const planId = event.data.object.metadata?.planId || 'pro';
+    const userId = event.data.object.metadata?.userId;
+    const email = event.data.object.customer_email || '';
+    const user = userId ? await getUserById(userId) : await getUserByEmail(email);
+    if (user) {
+      await applyPlanChange(user, planId);
+    }
+  }
+
+  if (event.type === 'customer.subscription.deleted') {
+    const customerEmail = event.data.object.customer_email || '';
+    const user = await getUserByEmail(customerEmail);
+    if (user) {
+      await applyPlanChange(user, 'free');
+    }
+  }
+
+  res.json({ ok: true, received: event.type });
 });
 
 app.get('/admin', (req, res) => {
@@ -612,8 +661,9 @@ app.post('/billing/checkout', async (req, res) => {
       const session = await stripe.checkout.sessions.create(buildCheckoutSessionArgs(req, currentUser, selectedPlan));
       return res.json({ ok: true, mode: 'stripe', checkoutUrl: session.url, plan: selectedPlan.id, planPriceUsd: selectedPlan.priceUsd, stripePriceId: stripePriceIds[selectedPlan.id] || null });
     } catch (error) {
-      const statusCode = error.statusCode || 500;
-      return res.status(statusCode).json({ ok: false, error: error.message });
+      const statusCode = error instanceof CheckoutError ? error.statusCode : 500;
+      const message = statusCode === 400 ? 'Select a paid plan to start checkout.' : 'Unable to start checkout right now.';
+      return res.status(statusCode).json({ ok: false, error: message });
     }
   }
 
@@ -627,56 +677,6 @@ app.post('/billing/checkout', async (req, res) => {
     checkoutUrl: `https://example.com/billing/checkout/${selectedPlan.id}`,
     message: 'Billing is mocked locally. Add Stripe credentials to enable real checkout.'
   });
-});
-
-app.post('/billing/webhook', async (req, res) => {
-  const signature = req.headers['stripe-signature'];
-  const payload = req.body ? (Buffer.isBuffer(req.body) ? JSON.parse(req.body.toString('utf8')) : req.body) : {};
-
-  if (!stripeWebhookSecret) {
-    if (payload.type === 'checkout.session.completed') {
-      const planId = payload.data?.object?.metadata?.planId || 'pro';
-      const userId = payload.data?.object?.metadata?.userId;
-      const email = payload.data?.object?.customer_email || '';
-      const user = userId ? await getUserById(userId) : await getUserByEmail(email);
-      if (user) {
-        await applyPlanChange(user, planId);
-      }
-    }
-
-    return res.json({ ok: true, received: payload.type || 'mock-event', mode: 'mock' });
-  }
-
-  if (!signature) {
-    return res.status(400).json({ ok: false, error: 'Stripe signature missing.' });
-  }
-
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, signature, stripeWebhookSecret);
-  } catch (error) {
-    return res.status(400).json({ ok: false, error: `Webhook signature verification failed: ${error.message}` });
-  }
-
-  if (event.type === 'checkout.session.completed') {
-    const planId = event.data.object.metadata?.planId || 'pro';
-    const userId = event.data.object.metadata?.userId;
-    const email = event.data.object.customer_email || '';
-    const user = userId ? await getUserById(userId) : await getUserByEmail(email);
-    if (user) {
-      await applyPlanChange(user, planId);
-    }
-  }
-
-  if (event.type === 'customer.subscription.deleted') {
-    const customerEmail = event.data.object.customer_email || '';
-    const user = await getUserByEmail(customerEmail);
-    if (user) {
-      await applyPlanChange(user, 'free');
-    }
-  }
-
-  res.json({ ok: true, received: event.type });
 });
 
 app.get('/billing/success', (req, res) => {
