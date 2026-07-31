@@ -75,3 +75,15 @@ STRIPE_CANCEL_URL=https://your-domain.example.com/billing/cancel
 ```
 
 If you only set `STRIPE_SECRET_KEY`, the API will create a checkout session using price data derived from the plan amount. If you also set `STRIPE_PRICE_PRO` and `STRIPE_PRICE_BUSINESS`, the API will use those real Stripe price IDs. Without Stripe credentials, the checkout endpoint returns a mock checkout payload so you can test the flow locally. The webhook endpoint also accepts a mock `checkout.session.completed` event when no Stripe secret is configured, which is useful for validating plan changes locally.
+
+## Database
+
+The app now expects a PostgreSQL connection string via `DATABASE_URL`.
+
+Example:
+
+```bash
+DATABASE_URL=postgresql://user:password@host:5432/database
+```
+
+Render can provide this automatically when you attach a managed PostgreSQL database.

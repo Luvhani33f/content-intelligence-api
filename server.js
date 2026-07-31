@@ -3,9 +3,8 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const fs = require('fs');
 const path = require('path');
-const Database = require('better-sqlite3');
+const { Pool } = require('pg');
 const Stripe = require('stripe');
 
 const app = express();
@@ -19,7 +18,7 @@ const stripePriceIds = {
 };
 const stripeSuccessUrl = process.env.STRIPE_SUCCESS_URL || '';
 const stripeCancelUrl = process.env.STRIPE_CANCEL_URL || '';
-const databasePath = process.env.DATABASE_PATH || path.join(__dirname, 'data', 'app.db');
+const connectionString = process.env.DATABASE_URL || '';
 
 const plans = {
   free: {
@@ -50,35 +49,33 @@ if (stripeSecretKey) {
   stripe = new Stripe(stripeSecretKey, { apiVersion: '2024-12-18.acacia' });
 }
 
-function ensureDatabaseFile() {
-  fs.mkdirSync(path.dirname(databasePath), { recursive: true });
-}
+const pool = connectionString ? new Pool({ connectionString }) : null;
 
-function initializeDatabase() {
-  ensureDatabaseFile();
-  const db = new Database(databasePath);
-  db.pragma('journal_mode = WAL');
-  db.exec(`
+async function initializeDatabase() {
+  if (!pool) {
+    throw new Error('DATABASE_URL is required.');
+  }
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
+      id UUID PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       plan_id TEXT NOT NULL DEFAULT 'free',
       subscription_status TEXT NOT NULL DEFAULT 'active',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      created_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS api_keys (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
+      id UUID PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       key TEXT UNIQUE NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      created_at TIMESTAMPTZ NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS usage (
-      user_id TEXT NOT NULL,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       month_key TEXT NOT NULL,
       request_count INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (user_id, month_key)
@@ -87,10 +84,24 @@ function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys (user_id);
     CREATE INDEX IF NOT EXISTS idx_usage_month ON usage (user_id, month_key);
   `);
-  return db;
 }
 
-const db = initializeDatabase();
+async function initialize() {
+  if (!pool) {
+    console.error('DATABASE_URL is required. Set it before starting the server.');
+    process.exit(1);
+  }
+
+  try {
+    await initializeDatabase();
+    console.log('PostgreSQL schema initialized.');
+  } catch (error) {
+    console.error('Failed to initialize PostgreSQL:', error.message);
+    process.exit(1);
+  }
+}
+
+initialize();
 
 function getPlan(planId) {
   return plans[planId] || plans.free;
@@ -137,32 +148,32 @@ function normalizeApiKey(row) {
   };
 }
 
-function getUserById(id) {
-  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-  if (!row) {
+async function getUserById(id) {
+  const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+  if (result.rows.length === 0) {
     return null;
   }
 
-  const user = normalizeUser(row);
-  const apiKeys = db.prepare('SELECT id, key, created_at FROM api_keys WHERE user_id = ? ORDER BY created_at').all(id);
-  user.apiKeys = apiKeys.map(normalizeApiKey);
+  const user = normalizeUser(result.rows[0]);
+  const apiKeysResult = await pool.query('SELECT id, key, created_at FROM api_keys WHERE user_id = $1 ORDER BY created_at', [id]);
+  user.apiKeys = apiKeysResult.rows.map(normalizeApiKey);
   return user;
 }
 
-function getUserByEmail(email) {
-  const row = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase());
-  if (!row) {
+async function getUserByEmail(email) {
+  const result = await pool.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]);
+  if (result.rows.length === 0) {
     return null;
   }
-  return getUserById(row.id);
+  return getUserById(result.rows[0].id);
 }
 
-function getUserByApiKey(apiKey) {
-  const row = db.prepare('SELECT user_id FROM api_keys WHERE key = ?').get(apiKey);
-  if (!row) {
+async function getUserByApiKey(apiKey) {
+  const result = await pool.query('SELECT user_id FROM api_keys WHERE key = $1', [apiKey]);
+  if (result.rows.length === 0) {
     return null;
   }
-  return getUserById(row.user_id);
+  return getUserById(result.rows[0].user_id);
 }
 
 function createUserRecord(payload) {
@@ -177,22 +188,22 @@ function createUserRecord(payload) {
   };
 }
 
-function createApiKey(userId) {
+async function createApiKey(userId) {
   const apiKey = {
     id: crypto.randomUUID(),
     key: generateApiKey(),
     createdAt: new Date().toISOString()
   };
-  db.prepare('INSERT INTO api_keys (id, user_id, key, created_at) VALUES (?, ?, ?, ?)').run(apiKey.id, userId, apiKey.key, apiKey.createdAt);
+  await pool.query('INSERT INTO api_keys (id, user_id, key, created_at) VALUES ($1, $2, $3, $4)', [apiKey.id, userId, apiKey.key, apiKey.createdAt]);
   return apiKey;
 }
 
-function getAuthenticatedUser(req, res) {
+async function getAuthenticatedUser(req, res) {
   const authHeader = req.headers.authorization || '';
   const apiKey = req.headers['x-api-key'] || req.headers['X-API-Key'];
 
   if (apiKey) {
-    const user = getUserByApiKey(apiKey);
+    const user = await getUserByApiKey(apiKey);
     if (!user) {
       res.status(401).json({ ok: false, error: 'Invalid API key.' });
       return null;
@@ -208,7 +219,7 @@ function getAuthenticatedUser(req, res) {
 
   try {
     const decoded = jwt.verify(bearerMatch[1], jwtSecret);
-    const user = getUserById(decoded.sub);
+    const user = await getUserById(decoded.sub);
     if (!user) {
       res.status(401).json({ ok: false, error: 'User not found.' });
       return null;
@@ -220,25 +231,25 @@ function getAuthenticatedUser(req, res) {
   }
 }
 
-function getUsageCount(user) {
+async function getUsageCount(user) {
   const monthKey = getMonthKey();
-  const row = db.prepare('SELECT request_count FROM usage WHERE user_id = ? AND month_key = ?').get(user.id, monthKey);
-  return row ? row.request_count : 0;
+  const result = await pool.query('SELECT request_count FROM usage WHERE user_id = $1 AND month_key = $2', [user.id, monthKey]);
+  return result.rows[0] ? result.rows[0].request_count : 0;
 }
 
-function incrementUsage(user) {
+async function incrementUsage(user) {
   const monthKey = getMonthKey();
-  db.prepare(`
+  await pool.query(`
     INSERT INTO usage (user_id, month_key, request_count)
-    VALUES (?, ?, 1)
-    ON CONFLICT(user_id, month_key) DO UPDATE SET request_count = request_count + 1
-  `).run(user.id, monthKey);
+    VALUES ($1, $2, 1)
+    ON CONFLICT (user_id, month_key) DO UPDATE SET request_count = usage.request_count + 1
+  `, [user.id, monthKey]);
 }
 
-function applyPlanChange(user, planId) {
+async function applyPlanChange(user, planId) {
   const plan = getPlan(planId);
   const updatedAt = new Date().toISOString();
-  db.prepare('UPDATE users SET plan_id = ?, subscription_status = ?, updated_at = ? WHERE id = ?').run(plan.id, 'active', updatedAt, user.id);
+  await pool.query('UPDATE users SET plan_id = $1, subscription_status = $2, updated_at = $3 WHERE id = $4', [plan.id, 'active', updatedAt, user.id]);
   user.planId = plan.id;
   user.subscriptionStatus = 'active';
   user.updatedAt = updatedAt;
@@ -346,7 +357,7 @@ app.get('/plans', (req, res) => {
   res.json({ ok: true, plans: Object.values(plans) });
 });
 
-app.post('/auth/register', (req, res) => {
+app.post('/auth/register', async (req, res) => {
   const { email, password, planId } = req.body || {};
   if (!email || !password) {
     return res.status(400).json({ ok: false, error: 'Email and password are required.' });
@@ -356,10 +367,8 @@ app.post('/auth/register', (req, res) => {
   const user = createUserRecord({ email, password, planId: selectedPlan.id });
 
   try {
-    db.prepare('INSERT INTO users (id, email, password_hash, plan_id, subscription_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(user.id, user.email.toLowerCase(), user.passwordHash, user.planId, user.subscriptionStatus, user.createdAt, user.updatedAt);
-
-    const apiKey = createApiKey(user.id);
+    await pool.query('INSERT INTO users (id, email, password_hash, plan_id, subscription_status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)', [user.id, user.email.toLowerCase(), user.passwordHash, user.planId, user.subscriptionStatus, user.createdAt, user.updatedAt]);
+    const apiKey = await createApiKey(user.id);
     user.apiKeys = [apiKey];
 
     res.status(201).json({
@@ -374,20 +383,20 @@ app.post('/auth/register', (req, res) => {
       }
     });
   } catch (error) {
-    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    if (error.code === '23505') {
       return res.status(409).json({ ok: false, error: 'Email already registered.' });
     }
     return res.status(500).json({ ok: false, error: 'Unable to create account.' });
   }
 });
 
-app.post('/auth/login', (req, res) => {
+app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) {
     return res.status(400).json({ ok: false, error: 'Email and password are required.' });
   }
 
-  const user = getUserByEmail(email);
+  const user = await getUserByEmail(email);
   if (!user || !verifyPassword(password, user.passwordHash)) {
     return res.status(401).json({ ok: false, error: 'Invalid credentials.' });
   }
@@ -395,11 +404,11 @@ app.post('/auth/login', (req, res) => {
   res.json({ ok: true, token: signToken(user), user: { id: user.id, email: user.email, planId: user.planId, subscriptionStatus: user.subscriptionStatus } });
 });
 
-app.get('/me', (req, res) => {
-  const user = getAuthenticatedUser(req, res);
+app.get('/me', async (req, res) => {
+  const user = await getAuthenticatedUser(req, res);
   if (!user) return;
 
-  const currentUser = getUserById(user.id);
+  const currentUser = await getUserById(user.id);
   if (!currentUser) {
     return res.status(404).json({ ok: false, error: 'User not found.' });
   }
@@ -411,36 +420,36 @@ app.get('/me', (req, res) => {
       email: currentUser.email,
       planId: currentUser.planId,
       subscriptionStatus: currentUser.subscriptionStatus,
-      usageThisMonth: getUsageCount(currentUser),
+      usageThisMonth: await getUsageCount(currentUser),
       apiKeys: currentUser.apiKeys.map((key) => ({ id: key.id, createdAt: key.createdAt }))
     }
   });
 });
 
-app.post('/api-keys', (req, res) => {
-  const user = getAuthenticatedUser(req, res);
+app.post('/api-keys', async (req, res) => {
+  const user = await getAuthenticatedUser(req, res);
   if (!user) return;
 
-  const currentUser = getUserById(user.id);
+  const currentUser = await getUserById(user.id);
   if (!currentUser) {
     return res.status(404).json({ ok: false, error: 'User not found.' });
   }
 
-  const newApiKey = createApiKey(currentUser.id);
+  const newApiKey = await createApiKey(currentUser.id);
   res.status(201).json({ ok: true, apiKey: newApiKey });
 });
 
-app.get('/v1/usage', (req, res) => {
-  const user = getAuthenticatedUser(req, res);
+app.get('/v1/usage', async (req, res) => {
+  const user = await getAuthenticatedUser(req, res);
   if (!user) return;
 
-  const currentUser = getUserById(user.id);
+  const currentUser = await getUserById(user.id);
   if (!currentUser) {
     return res.status(404).json({ ok: false, error: 'User not found.' });
   }
 
   const plan = getPlan(currentUser.planId);
-  const usageThisMonth = getUsageCount(currentUser);
+  const usageThisMonth = await getUsageCount(currentUser);
   res.json({
     ok: true,
     plan: plan.id,
@@ -450,11 +459,11 @@ app.get('/v1/usage', (req, res) => {
   });
 });
 
-app.post('/v1/analyze', (req, res) => {
-  const user = getAuthenticatedUser(req, res);
+app.post('/v1/analyze', async (req, res) => {
+  const user = await getAuthenticatedUser(req, res);
   if (!user) return;
 
-  const currentUser = getUserById(user.id);
+  const currentUser = await getUserById(user.id);
   if (!currentUser) {
     return res.status(404).json({ ok: false, error: 'User not found.' });
   }
@@ -466,7 +475,7 @@ app.post('/v1/analyze', (req, res) => {
   }
 
   const plan = getPlan(currentUser.planId);
-  const usageThisMonth = getUsageCount(currentUser);
+  const usageThisMonth = await getUsageCount(currentUser);
   if (usageThisMonth >= plan.requestsPerMonth) {
     return res.status(429).json({
       ok: false,
@@ -477,24 +486,24 @@ app.post('/v1/analyze', (req, res) => {
     });
   }
 
-  incrementUsage(currentUser);
+  await incrementUsage(currentUser);
 
   res.json({
     ok: true,
     analysis: analyzeText(text),
     plan: currentUser.planId,
-    usageThisMonth: getUsageCount(currentUser),
-    remaining: Math.max(0, plan.requestsPerMonth - getUsageCount(currentUser))
+    usageThisMonth: await getUsageCount(currentUser),
+    remaining: Math.max(0, plan.requestsPerMonth - (await getUsageCount(currentUser)))
   });
 });
 
 app.post('/billing/checkout', async (req, res) => {
-  const user = getAuthenticatedUser(req, res);
+  const user = await getAuthenticatedUser(req, res);
   if (!user) return;
 
   const { planId } = req.body || {};
   const selectedPlan = getPlan(planId || 'pro');
-  const currentUser = getUserById(user.id);
+  const currentUser = await getUserById(user.id);
   if (!currentUser) {
     return res.status(404).json({ ok: false, error: 'User not found.' });
   }
@@ -508,7 +517,7 @@ app.post('/billing/checkout', async (req, res) => {
     }
   }
 
-  applyPlanChange(currentUser, selectedPlan.id);
+  await applyPlanChange(currentUser, selectedPlan.id);
 
   res.json({
     ok: true,
@@ -529,9 +538,9 @@ app.post('/billing/webhook', async (req, res) => {
       const planId = payload.data?.object?.metadata?.planId || 'pro';
       const userId = payload.data?.object?.metadata?.userId;
       const email = payload.data?.object?.customer_email || '';
-      const user = userId ? getUserById(userId) : getUserByEmail(email);
+      const user = userId ? await getUserById(userId) : await getUserByEmail(email);
       if (user) {
-        applyPlanChange(user, planId);
+        await applyPlanChange(user, planId);
       }
     }
 
@@ -553,17 +562,17 @@ app.post('/billing/webhook', async (req, res) => {
     const planId = event.data.object.metadata?.planId || 'pro';
     const userId = event.data.object.metadata?.userId;
     const email = event.data.object.customer_email || '';
-    const user = userId ? getUserById(userId) : getUserByEmail(email);
+    const user = userId ? await getUserById(userId) : await getUserByEmail(email);
     if (user) {
-      applyPlanChange(user, planId);
+      await applyPlanChange(user, planId);
     }
   }
 
   if (event.type === 'customer.subscription.deleted') {
     const customerEmail = event.data.object.customer_email || '';
-    const user = getUserByEmail(customerEmail);
+    const user = await getUserByEmail(customerEmail);
     if (user) {
-      applyPlanChange(user, 'free');
+      await applyPlanChange(user, 'free');
     }
   }
 
@@ -580,5 +589,5 @@ app.get('/billing/cancel', (req, res) => {
 
 app.listen(port, () => {
   console.log(`SaaS API listening on http://localhost:${port}`);
-  console.log(`Database path: ${databasePath}`);
+  console.log(`Database URL configured: ${connectionString ? 'yes' : 'no'}`);
 });
