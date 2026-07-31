@@ -16,7 +16,7 @@ if (!jwtSecret) {
 }
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
-const storePath = path.join(__dirname, 'data', 'store.json');
+const storePath = process.env.DATA_FILE_PATH || path.join(__dirname, 'data', 'store.json');
 
 const plans = {
   free: {
