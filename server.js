@@ -4,12 +4,14 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
 const { Pool } = require('pg');
 const Stripe = require('stripe');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-me';
+const adminApiKey = process.env.ADMIN_API_KEY || '';
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
 const stripePriceIds = {
@@ -19,6 +21,7 @@ const stripePriceIds = {
 const stripeSuccessUrl = process.env.STRIPE_SUCCESS_URL || '';
 const stripeCancelUrl = process.env.STRIPE_CANCEL_URL || '';
 const connectionString = process.env.DATABASE_URL || '';
+const publicDir = path.join(__dirname, 'public');
 
 const plans = {
   free: {
@@ -246,6 +249,35 @@ async function incrementUsage(user) {
   `, [user.id, monthKey]);
 }
 
+async function listAdminUsers() {
+  const result = await pool.query(`
+    SELECT u.id, u.email, u.plan_id, u.subscription_status, u.created_at, COALESCE(SUM(usage.request_count), 0) AS total_requests
+    FROM users u
+    LEFT JOIN usage ON usage.user_id = u.id
+    GROUP BY u.id
+    ORDER BY u.created_at DESC
+  `);
+  return result.rows;
+}
+
+async function getAdminMetrics() {
+  const usersResult = await pool.query('SELECT COUNT(*)::int AS total_users FROM users');
+  const subscriptionsResult = await pool.query("SELECT COUNT(*)::int AS active_subscriptions FROM users WHERE subscription_status = 'active'");
+  const usageResult = await pool.query('SELECT COALESCE(SUM(request_count), 0)::int AS total_requests FROM usage');
+
+  return {
+    totalUsers: usersResult.rows[0].total_users,
+    activeSubscriptions: subscriptionsResult.rows[0].active_subscriptions,
+    totalRequests: usageResult.rows[0].total_requests
+  };
+}
+
+async function updateUserPlan(userId, planId) {
+  const plan = getPlan(planId || 'free');
+  const updatedAt = new Date().toISOString();
+  await pool.query('UPDATE users SET plan_id = $1, subscription_status = $2, updated_at = $3 WHERE id = $4', [plan.id, 'active', updatedAt, userId]);
+}
+
 async function applyPlanChange(user, planId) {
   const plan = getPlan(planId);
   const updatedAt = new Date().toISOString();
@@ -253,6 +285,21 @@ async function applyPlanChange(user, planId) {
   user.planId = plan.id;
   user.subscriptionStatus = 'active';
   user.updatedAt = updatedAt;
+}
+
+function requireAdmin(req, res) {
+  if (!adminApiKey) {
+    res.status(500).json({ ok: false, error: 'ADMIN_API_KEY is not configured.' });
+    return false;
+  }
+
+  const providedKey = req.headers['x-admin-key'] || req.query.adminKey || '';
+  if (!providedKey || providedKey !== adminApiKey) {
+    res.status(401).json({ ok: false, error: 'Admin authentication required.' });
+    return false;
+  }
+
+  return true;
 }
 
 function buildCheckoutSessionArgs(req, currentUser, selectedPlan) {
@@ -333,11 +380,16 @@ function analyzeText(text) {
 }
 
 app.use(cors());
+app.use(express.static(publicDir));
 app.use((req, res, next) => {
   if (req.path === '/billing/webhook') {
     return express.raw({ type: 'application/json' })(req, res, next);
   }
   return express.json()(req, res, next);
+});
+
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(publicDir, 'admin.html'));
 });
 
 app.get('/health', (req, res) => {
@@ -355,6 +407,34 @@ app.get('/', (req, res) => {
 
 app.get('/plans', (req, res) => {
   res.json({ ok: true, plans: Object.values(plans) });
+});
+
+app.get('/api/admin/metrics', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const metrics = await getAdminMetrics();
+  res.json({ ok: true, ...metrics });
+});
+
+app.get('/api/admin/users', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const users = await listAdminUsers();
+  res.json({ ok: true, users });
+});
+
+app.post('/api/admin/users/:id/plan', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { planId } = req.body || {};
+  const userId = req.params.id;
+  if (!userId) {
+    return res.status(400).json({ ok: false, error: 'A user ID is required.' });
+  }
+
+  try {
+    await updateUserPlan(userId, planId);
+    res.json({ ok: true, userId, planId: getPlan(planId || 'free').id });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: 'Unable to update plan.' });
+  }
 });
 
 app.post('/auth/register', async (req, res) => {

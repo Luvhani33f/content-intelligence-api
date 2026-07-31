@@ -76,6 +76,18 @@ STRIPE_CANCEL_URL=https://your-domain.example.com/billing/cancel
 
 If you only set `STRIPE_SECRET_KEY`, the API will create a checkout session using price data derived from the plan amount. If you also set `STRIPE_PRICE_PRO` and `STRIPE_PRICE_BUSINESS`, the API will use those real Stripe price IDs. Without Stripe credentials, the checkout endpoint returns a mock checkout payload so you can test the flow locally. The webhook endpoint also accepts a mock `checkout.session.completed` event when no Stripe secret is configured, which is useful for validating plan changes locally.
 
+## Admin dashboard
+
+The app now includes a simple admin dashboard at `/admin`.
+
+To use it, set an `ADMIN_API_KEY` and visit:
+
+```bash
+https://your-domain/admin
+```
+
+Use the same key in the dashboard form to view users, subscription status, and update a customer plan.
+
 ## Database
 
 The app now expects a PostgreSQL connection string via `DATABASE_URL`.

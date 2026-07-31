@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Content Intelligence Admin</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #07111f;
+        --surface: rgba(12, 24, 42, 0.95);
+        --surface-2: #13233c;
+        --text: #eaf2ff;
+        --muted: #88a6ca;
+        --accent: #4ea3ff;
+        --accent-2: #77ffbf;
+        --danger: #ff7575;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+        background: linear-gradient(135deg, var(--bg), #15253f 70%, #0f1b2e);
+        color: var(--text);
+        min-height: 100vh;
+      }
+      .shell {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+      }
+      .hero {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: center;
+        padding: 24px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: var(--surface);
+        border-radius: 20px;
+        box-shadow: 0 18px 50px rgba(0,0,0,0.22);
+      }
+      .hero h1 { margin: 0 0 8px; font-size: 1.8rem; }
+      .hero p { margin: 0; color: var(--muted); }
+      .key-form {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      input, select, button {
+        font: inherit;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.12);
+      }
+      input {
+        min-width: 290px;
+        background: rgba(255,255,255,0.04);
+        color: var(--text);
+      }
+      button {
+        background: linear-gradient(135deg, var(--accent), #2a6fe6);
+        color: white;
+        cursor: pointer;
+        border: none;
+      }
+      button.secondary { background: var(--surface-2); }
+      .stats {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        margin-top: 24px;
+      }
+      .card {
+        padding: 18px 20px;
+        border-radius: 16px;
+        background: var(--surface);
+        border: 1px solid rgba(255,255,255,0.08);
+      }
+      .metric { font-size: 2rem; font-weight: 700; margin-top: 6px; }
+      .muted { color: var(--muted); }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+        overflow: hidden;
+        border-radius: 16px;
+      }
+      th, td {
+        padding: 12px 14px;
+        text-align: left;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+      }
+      th { background: rgba(255,255,255,0.06); }
+      tr:hover { background: rgba(255,255,255,0.03); }
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 6px 10px;
+        background: rgba(119,255,191,0.16);
+        color: var(--accent-2);
+        font-size: 0.85rem;
+      }
+      .status-paid { color: var(--accent-2); }
+      .status-pending { color: var(--danger); }
+      .status-free { color: var(--muted); }
+      .row-actions { display: flex; gap: 8px; align-items: center; }
+      .row-actions select { min-width: 110px; }
+      .error { color: var(--danger); margin-top: 12px; }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="hero">
+        <div>
+          <h1>Content Intelligence Admin</h1>
+          <p>Manage customers, plans, and usage from one place.</p>
+        </div>
+        <form class="key-form" id="key-form">
+          <input id="admin-key" type="password" placeholder="Admin API key" />
+          <button type="submit">Connect</button>
+          <button type="button" class="secondary" id="refresh-btn">Refresh</button>
+        </form>
+      </section>
+
+      <section class="stats" id="stats"></section>
+      <div id="error" class="error"></div>
+      <table class="hidden" id="users-table">
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Plan</th>
+            <th>Status</th>
+            <th>Total requests</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="users-body"></tbody>
+      </table>
+    </div>
+
+    <script>
+      const keyInput = document.getElementById('admin-key');
+      const stats = document.getElementById('stats');
+      const tbody = document.getElementById('users-body');
+      const table = document.getElementById('users-table');
+      const errorBox = document.getElementById('error');
+
+      const storedKey = window.localStorage.getItem('adminApiKey') || '';
+      if (storedKey) {
+        keyInput.value = storedKey;
+      }
+
+      function setError(message) {
+        errorBox.textContent = message || '';
+      }
+
+      async function fetchJson(url, options = {}) {
+        const adminKey = keyInput.value.trim();
+        if (!adminKey) {
+          throw new Error('Please enter your admin API key.');
+        }
+        const headers = { ...(options.headers || {}) };
+        headers['X-Admin-Key'] = adminKey;
+        const response = await fetch(url, { ...options, headers });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || 'Request failed.');
+        }
+        return payload;
+      }
+
+      function renderStats(metrics) {
+        stats.innerHTML = `
+          <div class="card">
+            <div class="muted">Total users</div>
+            <div class="metric">${metrics.totalUsers}</div>
+          </div>
+          <div class="card">
+            <div class="muted">Active subscriptions</div>
+            <div class="metric">${metrics.activeSubscriptions}</div>
+          </div>
+          <div class="card">
+            <div class="muted">Total requests</div>
+            <div class="metric">${metrics.totalRequests}</div>
+          </div>
+        `;
+      }
+
+      function renderUsers(users) {
+        tbody.innerHTML = '';
+        if (!users.length) {
+          tbody.innerHTML = '<tr><td colspan="6" class="muted">No users found.</td></tr>';
+        }
+        users.forEach((user) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${user.email}</td>
+            <td><span class="pill">${user.planId}</span></td>
+            <td><span class="${user.subscriptionStatus === 'active' ? 'status-paid' : 'status-pending'}">${user.subscriptionStatus}</span></td>
+            <td>${user.totalRequests}</td>
+            <td>${new Date(user.createdAt).toLocaleDateString()}</td>
+            <td>
+              <div class="row-actions">
+                <select data-user-id="${user.id}">
+                  <option value="free" ${user.planId === 'free' ? 'selected' : ''}>Free</option>
+                  <option value="pro" ${user.planId === 'pro' ? 'selected' : ''}>Pro</option>
+                  <option value="business" ${user.planId === 'business' ? 'selected' : ''}>Business</option>
+                </select>
+                <button type="button" class="secondary" data-action="update" data-user-id="${user.id}">Save</button>
+              </div>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+        table.classList.remove('hidden');
+      }
+
+      async function loadDashboard() {
+        setError('');
+        try {
+          const key = keyInput.value.trim();
+          if (!key) {
+            throw new Error('Please enter your admin API key.');
+          }
+          window.localStorage.setItem('adminApiKey', key);
+          const [metrics, users] = await Promise.all([
+            fetchJson('/api/admin/metrics'),
+            fetchJson('/api/admin/users')
+          ]);
+          renderStats(metrics);
+          renderUsers(users.users);
+        } catch (error) {
+          setError(error.message);
+        }
+      }
+
+      document.getElementById('key-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        loadDashboard();
+      });
+
+      document.getElementById('refresh-btn').addEventListener('click', loadDashboard);
+      document.addEventListener('click', async (event) => {
+        const button = event.target.closest('[data-action="update"]');
+        if (!button) return;
+        const userId = button.getAttribute('data-user-id');
+        const select = document.querySelector(`select[data-user-id="${userId}"]`);
+        const planId = select?.value;
+        if (!planId) return;
+        try {
+          await fetchJson(`/api/admin/users/${userId}/plan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ planId })
+          });
+          loadDashboard();
+        } catch (error) {
+          setError(error.message);
+        }
+      });
+
+      loadDashboard();
+    </script>
+  </body>
+</html>
