@@ -6,9 +6,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const path = require('path');
-const fs = require('fs');
 const { Pool } = require('pg');
-const Stripe = require('stripe');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -21,14 +19,13 @@ if (!process.env.JWT_SECRET) {
   console.warn('JWT_SECRET not set; using a generated development secret.');
 }
 const adminApiKey = process.env.ADMIN_API_KEY || '';
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
-const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
-const stripePriceIds = {
-  pro: process.env.STRIPE_PRICE_PRO || '',
-  business: process.env.STRIPE_PRICE_BUSINESS || ''
-};
-const stripeSuccessUrl = process.env.STRIPE_SUCCESS_URL || '';
-const stripeCancelUrl = process.env.STRIPE_CANCEL_URL || '';
+const payfastMerchantId = process.env.PAYFAST_MERCHANT_ID || '';
+const payfastMerchantKey = process.env.PAYFAST_MERCHANT_KEY || '';
+const payfastPassphrase = process.env.PAYFAST_PASSPHRASE || '';
+const payfastMode = (process.env.PAYFAST_MODE || 'sandbox').toLowerCase();
+const payfastReturnUrl = process.env.PAYFAST_RETURN_URL || '';
+const payfastCancelUrl = process.env.PAYFAST_CANCEL_URL || '';
+const payfastNotifyUrl = process.env.PAYFAST_NOTIFY_URL || '';
 const connectionString = process.env.DATABASE_URL || '';
 const publicDir = path.join(__dirname, 'public');
 
@@ -55,11 +52,6 @@ const plans = {
     features: ['Unlimited team seats', 'SLA', 'Custom analytics']
   }
 };
-
-let stripe = null;
-if (stripeSecretKey) {
-  stripe = new Stripe(stripeSecretKey, { apiVersion: '2024-12-18.acacia' });
-}
 
 const pool = connectionString ? new Pool({ connectionString }) : null;
 
@@ -319,39 +311,52 @@ function requireAdmin(req, res) {
   return true;
 }
 
-function buildCheckoutSessionArgs(req, currentUser, selectedPlan) {
-  const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
-  const successUrl = stripeSuccessUrl || `${baseUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`;
-  const cancelUrl = stripeCancelUrl || `${baseUrl}/billing/cancel`;
+function buildPayfastSignature(payload) {
+  const fields = Object.entries(payload)
+    .filter(([, value]) => value !== '' && value !== null && value !== undefined)
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
 
+  const normalized = fields.map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`).join('&');
+  const passphraseSuffix = payfastPassphrase ? `&passphrase=${encodeURIComponent(payfastPassphrase)}` : '';
+  return crypto.createHash('md5').update(`${normalized}${passphraseSuffix}`).digest('hex');
+}
+
+function buildPayfastCheckoutArgs(req, currentUser, selectedPlan) {
   if (!selectedPlan || selectedPlan.id === 'free' || Number(selectedPlan.priceUsd) <= 0) {
-    throw new CheckoutError('Only paid plans can create a Stripe checkout session.', 400);
+    throw new CheckoutError('Only paid plans can create a PayFast checkout request.', 400);
   }
 
-  const lineItems = [];
-
-  if (stripePriceIds[selectedPlan.id]) {
-    lineItems.push({ price: stripePriceIds[selectedPlan.id], quantity: 1 });
-  } else {
-    lineItems.push({
-      price_data: {
-        currency: 'usd',
-        unit_amount: Math.round(Number(selectedPlan.priceUsd) * 100),
-        recurring: { interval: 'month' },
-        product_data: { name: `${selectedPlan.name} plan` }
-      },
-      quantity: 1
-    });
-  }
-
-  return {
-    mode: 'subscription',
-    line_items: lineItems,
-    success_url: successUrl,
+  const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const returnUrl = payfastReturnUrl || `${baseUrl}/billing/payfast/return`;
+  const cancelUrl = payfastCancelUrl || `${baseUrl}/billing/cancel`;
+  const notifyUrl = payfastNotifyUrl || `${baseUrl}/billing/payfast/notify`;
+  const paymentId = `${currentUser.id}-${Date.now()}`;
+  const payload = {
+    merchant_id: payfastMerchantId,
+    merchant_key: payfastMerchantKey,
+    return_url: returnUrl,
     cancel_url: cancelUrl,
-    customer_email: currentUser.email,
-    metadata: { planId: selectedPlan.id, userId: currentUser.id },
-    submit_type: 'subscribe'
+    notify_url: notifyUrl,
+    name_first: (currentUser.email || 'Customer').split('@')[0],
+    name_last: 'User',
+    email_address: currentUser.email,
+    m_payment_id: paymentId,
+    amount: Number(selectedPlan.priceUsd).toFixed(2),
+    item_name: `${selectedPlan.name} plan`,
+    item_description: `${selectedPlan.name} monthly subscription`,
+    custom_str1: `${currentUser.id}|${selectedPlan.id}`,
+    custom_str2: 'content-intelligence-api',
+    email_confirmation: '1',
+    confirmation_address: currentUser.email
+  };
+
+  const signature = buildPayfastSignature(payload);
+  return {
+    payload,
+    signature,
+    checkoutUrl: payfastMode === 'live'
+      ? 'https://www.payfast.co.za/eng/process'
+      : 'https://sandbox.payfast.co.za/eng/process'
   };
 }
 
@@ -405,56 +410,7 @@ function analyzeText(text) {
 app.use(cors());
 app.use(express.static(publicDir));
 app.use(express.json());
-
-app.post('/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const signature = req.headers['stripe-signature'];
-  const payload = req.body ? (Buffer.isBuffer(req.body) ? JSON.parse(req.body.toString('utf8')) : req.body) : {};
-
-  if (!stripeWebhookSecret) {
-    if (payload.type === 'checkout.session.completed') {
-      const planId = payload.data?.object?.metadata?.planId || 'pro';
-      const userId = payload.data?.object?.metadata?.userId;
-      const email = payload.data?.object?.customer_email || '';
-      const user = userId ? await getUserById(userId) : await getUserByEmail(email);
-      if (user) {
-        await applyPlanChange(user, planId);
-      }
-    }
-
-    return res.json({ ok: true, received: payload.type || 'mock-event', mode: 'mock' });
-  }
-
-  if (!signature) {
-    return res.status(400).json({ ok: false, error: 'Stripe signature missing.' });
-  }
-
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, signature, stripeWebhookSecret);
-  } catch (error) {
-    return res.status(400).json({ ok: false, error: 'Webhook signature verification failed.' });
-  }
-
-  if (event.type === 'checkout.session.completed') {
-    const planId = event.data.object.metadata?.planId || 'pro';
-    const userId = event.data.object.metadata?.userId;
-    const email = event.data.object.customer_email || '';
-    const user = userId ? await getUserById(userId) : await getUserByEmail(email);
-    if (user) {
-      await applyPlanChange(user, planId);
-    }
-  }
-
-  if (event.type === 'customer.subscription.deleted') {
-    const customerEmail = event.data.object.customer_email || '';
-    const user = await getUserByEmail(customerEmail);
-    if (user) {
-      await applyPlanChange(user, 'free');
-    }
-  }
-
-  res.json({ ok: true, received: event.type });
-});
+app.use(express.urlencoded({ extended: true }));
 
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(publicDir, 'admin.html'));
@@ -629,7 +585,7 @@ app.post('/v1/analyze', async (req, res) => {
       ok: false,
       error: 'Monthly quota reached.',
       plan: plan.id,
-      upgradeUrl: 'https://example.com/pricing',
+      upgradeUrl: '/pricing',
       remaining: 0
     });
   }
@@ -656,10 +612,16 @@ app.post('/billing/checkout', async (req, res) => {
     return res.status(404).json({ ok: false, error: 'User not found.' });
   }
 
-  if (stripe && stripeSecretKey) {
+  const payfastEnabled = Boolean(payfastMerchantId && payfastMerchantKey);
+
+  if (payfastEnabled) {
     try {
-      const session = await stripe.checkout.sessions.create(buildCheckoutSessionArgs(req, currentUser, selectedPlan));
-      return res.json({ ok: true, mode: 'stripe', checkoutUrl: session.url, plan: selectedPlan.id, planPriceUsd: selectedPlan.priceUsd, stripePriceId: stripePriceIds[selectedPlan.id] || null });
+      const payfastCheckout = buildPayfastCheckoutArgs(req, currentUser, selectedPlan);
+      const params = new URLSearchParams({
+        ...payfastCheckout.payload,
+        signature: payfastCheckout.signature
+      });
+      return res.json({ ok: true, mode: 'payfast', checkoutUrl: `${payfastCheckout.checkoutUrl}?${params.toString()}`, plan: selectedPlan.id, planPriceUsd: selectedPlan.priceUsd });
     } catch (error) {
       const statusCode = error instanceof CheckoutError ? error.statusCode : 500;
       const message = statusCode === 400 ? 'Select a paid plan to start checkout.' : 'Unable to start checkout right now.';
@@ -674,13 +636,42 @@ app.post('/billing/checkout', async (req, res) => {
     mode: 'mock',
     plan: selectedPlan.id,
     planPriceUsd: selectedPlan.priceUsd,
-    checkoutUrl: `https://example.com/billing/checkout/${selectedPlan.id}`,
-    message: 'Billing is mocked locally. Add Stripe credentials to enable real checkout.'
+    checkoutUrl: `/billing/checkout/${selectedPlan.id}`,
+    message: 'Billing is in local test mode. Add PayFast credentials to enable real checkout.'
   });
 });
 
+app.post('/billing/payfast/notify', async (req, res) => {
+  if (!payfastMerchantId || !payfastMerchantKey) {
+    return res.status(400).send('PayFast is not configured.');
+  }
+
+  const payload = req.body || {};
+  const expectedSignature = buildPayfastSignature(Object.fromEntries(Object.entries(payload).filter(([key]) => key !== 'signature')));
+  if ((payload.signature || '').toLowerCase() !== expectedSignature.toLowerCase()) {
+    return res.status(400).send('Invalid signature.');
+  }
+
+  if (payload.payment_status === 'COMPLETE' || payload.payment_status === 'PAID') {
+    const customValue = payload.custom_str1 || '';
+    const [userId, planId] = customValue.split('|');
+    if (userId) {
+      const user = await getUserById(userId);
+      if (user) {
+        await applyPlanChange(user, planId || 'pro');
+      }
+    }
+  }
+
+  res.status(200).send('OK');
+});
+
+app.get('/billing/payfast/return', (req, res) => {
+  res.json({ ok: true, message: 'PayFast payment completed. Your plan will be activated after PayFast confirms the payment.' });
+});
+
 app.get('/billing/success', (req, res) => {
-  res.json({ ok: true, message: 'Checkout succeeded. Your plan will be activated after the webhook confirms the subscription.', sessionId: req.query.session_id || null });
+  res.json({ ok: true, message: 'Checkout succeeded. Your plan will be activated after PayFast confirms the payment.', sessionId: req.query.session_id || null });
 });
 
 app.get('/billing/cancel', (req, res) => {

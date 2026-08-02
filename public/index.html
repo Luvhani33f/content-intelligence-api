@@ -3,38 +3,39 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Content Intelligence API</title>
-    <meta name="description" content="Launch a monetized API product with auth, billable plans, and Stripe-ready checkout." />
+    <title>Closeway | Content Intelligence API</title>
+    <meta name="description" content="Closeway delivers a secure, scalable content intelligence API with billing-ready plans and enterprise-grade access controls." />
     <style>
       :root {
         color-scheme: dark;
-        --bg: #07111f;
-        --panel: rgba(15, 23, 42, 0.92);
-        --panel-strong: rgba(30, 41, 59, 0.98);
-        --accent: #4f8cff;
-        --accent-2: #7c3aed;
-        --text: #f8fafc;
-        --muted: #94a3b8;
-        --success: #22c55e;
-        --warning: #f59e0b;
+        --bg: #060b14;
+        --panel: rgba(10, 20, 34, 0.94);
+        --panel-strong: rgba(20, 32, 50, 0.98);
+        --accent: #5b8cff;
+        --accent-2: #7c4dff;
+        --text: #f7f9ff;
+        --muted: #9fb0c7;
+        --success: #2ecf84;
+        --warning: #f5b84b;
+        --border: rgba(255,255,255,0.08);
       }
 
       * { box-sizing: border-box; }
       body {
         margin: 0;
         font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: radial-gradient(circle at top left, rgba(79, 140, 255, 0.2), transparent 35%), var(--bg);
+        background: radial-gradient(circle at top left, rgba(91, 140, 255, 0.18), transparent 34%), linear-gradient(135deg, #060b14 0%, #0c1630 100%);
         color: var(--text);
       }
 
       a { color: inherit; text-decoration: none; }
-      .container { width: min(1160px, calc(100% - 2rem)); margin: 0 auto; }
+      .container { width: min(1180px, calc(100% - 2rem)); margin: 0 auto; }
       header {
-        padding: 1.25rem 0 3rem;
+        padding: 1.1rem 0 2.6rem;
         position: sticky;
         top: 0;
-        backdrop-filter: blur(22px);
-        background: rgba(7, 17, 31, 0.7);
+        backdrop-filter: blur(18px);
+        background: rgba(6, 11, 20, 0.72);
         z-index: 5;
       }
       nav { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
@@ -42,45 +43,43 @@
       .nav-links { display: flex; gap: 1rem; color: var(--muted); }
       .hero {
         display: grid;
-        grid-template-columns: 1.1fr 0.9fr;
-        gap: 2.5rem;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 2.2rem;
         align-items: center;
-        padding: 2rem 0 4rem;
+        padding: 1.4rem 0 3.8rem;
       }
-      .hero h1 { font-size: clamp(2.2rem, 3.8vw, 3.6rem); line-height: 1.05; margin: 0 0 1rem; }
-      .hero p { color: var(--muted); font-size: 1.05rem; line-height: 1.7; margin-bottom: 1.5rem; }
-      .hero-actions { display: flex; gap: 1rem; flex-wrap: wrap; }
-      .btn { border: 0; padding: 0.8rem 1.15rem; border-radius: 999px; font-weight: 700; cursor: pointer; }
+      .hero h1 { font-size: clamp(2.2rem, 3.2vw, 3.3rem); line-height: 1.08; margin: 0 0 1rem; }
+      .hero p { color: var(--muted); font-size: 1rem; line-height: 1.7; margin-bottom: 1.2rem; }
+      .hero-actions { display: flex; gap: 0.9rem; flex-wrap: wrap; }
+      .btn { border: 0; padding: 0.8rem 1.1rem; border-radius: 999px; font-weight: 700; cursor: pointer; }
       .btn-primary { background: linear-gradient(90deg, var(--accent), var(--accent-2)); color: white; }
       .btn-secondary { background: rgba(255,255,255,0.08); color: var(--text); }
       .card {
         background: var(--panel);
-        border: 1px solid rgba(255,255,255,0.08);
+        border: 1px solid var(--border);
         border-radius: 24px;
         padding: 1.2rem;
-        box-shadow: 0 25px 80px rgba(0,0,0,0.24);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
       }
-      .metrics { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 1rem; }
-      .metric { padding: 1rem; border-radius: 18px; background: rgba(255,255,255,0.04); }
-      .metric strong { display: block; font-size: 1.15rem; margin-bottom: 0.2rem; }
-      .section { padding: 2rem 0 3rem; }
+      .feature-list { margin: 1.2rem 0 0; padding-left: 1.1rem; color: var(--muted); line-height: 1.9; }
+      .section { padding: 1.2rem 0 3rem; }
       .section-title { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-bottom: 1rem; }
       .pricing-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
-      .plan { display: flex; flex-direction: column; gap: 0.9rem; }
+      .plan { display: flex; flex-direction: column; gap: 0.8rem; }
       .price { font-size: 2rem; font-weight: 800; }
-      .pill { display: inline-block; width: fit-content; padding: 0.3rem 0.6rem; border-radius: 999px; background: rgba(79,140,255,0.14); color: #bcd3ff; font-size: 0.82rem; }
-      ul { margin: 0; padding-left: 1.05rem; color: var(--muted); line-height: 1.7; }
+      .pill { display: inline-block; width: fit-content; padding: 0.35rem 0.7rem; border-radius: 999px; background: rgba(91, 140, 255, 0.16); color: #c8d8ff; font-size: 0.8rem; }
       .account-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
       .form-grid { display: grid; gap: 0.8rem; }
-      input { width: 100%; padding: 0.8rem 0.85rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: var(--text); }
+      input { width: 100%; padding: 0.8rem 0.9rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: var(--text); }
       .status { margin-top: 0.4rem; color: var(--muted); min-height: 1.4rem; }
       .success { color: var(--success); }
       .warning { color: var(--warning); }
-      .api-key { word-break: break-all; font-family: ui-monospace, SFMono-Regular, monospace; color: #c7d2fe; }
-      .small { font-size: 0.9rem; color: var(--muted); }
+      .api-key { word-break: break-all; font-family: ui-monospace, SFMono-Regular, monospace; color: #dbe4ff; }
+      .small { font-size: 0.92rem; color: var(--muted); }
+      .panel-inner { padding: 1rem; background: rgba(255,255,255,0.03); }
+      .account-card { margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.03); }
       @media (max-width: 920px) {
         .hero, .account-panel, .pricing-grid { grid-template-columns: 1fr; }
-        .metrics { grid-template-columns: 1fr; }
       }
     </style>
   </head>
@@ -88,7 +87,7 @@
     <header>
       <div class="container">
         <nav>
-          <a class="brand" href="#">Content Intelligence API</a>
+          <a class="brand" href="#">Closeway</a>
           <div class="nav-links">
             <a href="#pricing">Pricing</a>
             <a href="#dashboard">Dashboard</a>
@@ -101,42 +100,43 @@
     <main class="container">
       <section class="hero">
         <div>
-          <p class="pill">Monetize content analysis with API-first revenue</p>
-          <h1>Turn text intelligence into a subscription product your customers will love.</h1>
-          <p>Your API ships with auth, per-user API keys, plan-based quota enforcement, and Stripe-ready checkout so you can start selling immediately.</p>
+          <p class="pill">Professional API delivery</p>
+          <h1>Launch a content intelligence product that feels built for scale.</h1>
+          <p>Provide secure text analysis, plan-aware access, and billing-ready workflows from a single platform designed for modern SaaS teams.</p>
           <div class="hero-actions">
-            <a class="btn btn-primary" href="#pricing">See pricing</a>
-            <a class="btn btn-secondary" href="#dashboard">Open starter dashboard</a>
+            <a class="btn btn-primary" href="#pricing">View plans</a>
+            <a class="btn btn-secondary" href="#dashboard">Open workspace</a>
           </div>
-          <div class="metrics">
-            <div class="metric"><strong>JWT + API keys</strong><span>Ship secure access to developers and internal apps.</span></div>
-            <div class="metric"><strong>PostgreSQL-ready</strong><span>Persist users, usage, and billing data for production.</span></div>
-            <div class="metric"><strong>Stripe-ready</strong><span>Launch checkout flows for pro and business tiers.</span></div>
-          </div>
+          <ul class="feature-list">
+            <li>JWT and API-key authentication for trusted integrations</li>
+            <li>Usage-aware limits and clear upgrade paths for every plan</li>
+            <li>Checkout hooks ready for production billing providers</li>
+          </ul>
         </div>
         <div class="card">
-          <h3>Get started in minutes</h3>
-          <p class="small">Create an account, generate an API key, and start calling the endpoint.</p>
-          <div id="auth-status" class="status">Sign up or log in to activate your account.</div>
+          <div class="small">Access your workspace</div>
+          <h3>Manage accounts and integrations with confidence.</h3>
+          <p class="small">Create an account to manage plans, create keys, and track usage from one place.</p>
+          <div id="auth-status" class="status">Sign up or sign in to continue.</div>
           <div class="account-panel" id="dashboard">
-            <div class="card" style="padding: 1rem; background: rgba(255,255,255,0.03);">
+            <div class="card panel-inner">
               <h4>Register</h4>
               <form id="signup-form" class="form-grid">
-                <input name="email" type="email" placeholder="founder@example.com" required />
-                <input name="password" type="password" placeholder="Create a password" required />
+                <input name="email" type="email" placeholder="name@company.com" required />
+                <input name="password" type="password" placeholder="Create a secure password" required />
                 <button class="btn btn-primary" type="submit">Create account</button>
               </form>
             </div>
-            <div class="card" style="padding: 1rem; background: rgba(255,255,255,0.03);">
-              <h4>Log in</h4>
+            <div class="card panel-inner">
+              <h4>Sign in</h4>
               <form id="login-form" class="form-grid">
-                <input name="email" type="email" placeholder="founder@example.com" required />
-                <input name="password" type="password" placeholder="Enter password" required />
+                <input name="email" type="email" placeholder="name@company.com" required />
+                <input name="password" type="password" placeholder="Enter your password" required />
                 <button class="btn btn-secondary" type="submit">Sign in</button>
               </form>
             </div>
           </div>
-          <div class="card" style="margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.03);">
+          <div class="card account-card">
             <h4>Account snapshot</h4>
             <div id="account-info" class="small">No active session yet.</div>
             <button id="api-key-btn" class="btn btn-secondary" style="margin-top: 0.8rem;">Create API key</button>

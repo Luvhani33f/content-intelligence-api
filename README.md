@@ -1,6 +1,8 @@
-# Content Intelligence API
+# Closeway Content Intelligence API
 
-A monetization-ready SaaS API for content analysis that includes:
+A polished SaaS API for content analysis with secure access, plan-aware usage limits, and billing-ready checkout flows.
+
+It includes:
 
 - user registration and login
 - JWT-based authentication
@@ -14,15 +16,15 @@ A monetization-ready SaaS API for content analysis that includes:
 - Monthly request caps
 - JSON responses designed for app integrations
 - A polished landing page and pricing UI for product launches
-- Ready for Stripe checkout once credentials are configured
+- PayFast checkout flow ready once credentials are configured
 
 ## Run locally
 
-Create an environment file and set a JWT secret before starting the API:
+Create an environment file and set your runtime values before starting the API:
 
 ```bash
 cd money-api
-cp .env.example .env
+cp .env.example .env  # if you keep a local example file
 npm start
 ```
 
@@ -33,7 +35,7 @@ Register a user:
 ```bash
 curl -X POST http://localhost:3000/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"founder@example.com","password":"supersecret","planId":"pro"}'
+  -d '{"email":"your-email@company.com","password":"your-secure-password","planId":"pro"}'
 ```
 
 Login:
@@ -41,7 +43,7 @@ Login:
 ```bash
 curl -X POST http://localhost:3000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"founder@example.com","password":"supersecret"}'
+  -d '{"email":"your-email@company.com","password":"your-secure-password"}'
 ```
 
 Analyze content using a JWT:
@@ -64,22 +66,23 @@ curl -X POST http://localhost:3000/v1/analyze \
 
 ## Billing
 
-To enable real Stripe checkout, set these environment variables:
+The app uses PayFast for checkout. Set your production values in the environment:
 
 ```bash
-PUBLIC_BASE_URL=https://your-domain.example.com
+PUBLIC_BASE_URL=https://api.yourcompany.com
 ```
 
 ```bash
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-STRIPE_PRICE_PRO=price_...
-STRIPE_PRICE_BUSINESS=price_...
-STRIPE_SUCCESS_URL=https://your-domain.example.com/billing/success
-STRIPE_CANCEL_URL=https://your-domain.example.com/billing/cancel
+PAYFAST_MERCHANT_ID=your-payfast-merchant-id
+PAYFAST_MERCHANT_KEY=your-payfast-merchant-key
+PAYFAST_PASSPHRASE=your-payfast-passphrase
+PAYFAST_MODE=sandbox
+PAYFAST_RETURN_URL=https://api.yourcompany.com/billing/payfast/return
+PAYFAST_CANCEL_URL=https://api.yourcompany.com/billing/cancel
+PAYFAST_NOTIFY_URL=https://api.yourcompany.com/billing/payfast/notify
 ```
 
-If you only set `STRIPE_SECRET_KEY`, the API will create a checkout session using price data derived from the plan amount. If you also set `STRIPE_PRICE_PRO` and `STRIPE_PRICE_BUSINESS`, the API will use those real Stripe price IDs. Without Stripe credentials, the checkout endpoint returns a mock checkout payload so you can test the flow locally. The webhook endpoint also accepts a mock `checkout.session.completed` event when no Stripe secret is configured, which is useful for validating plan changes locally.
+When PayFast credentials are configured, the checkout endpoint redirects customers to the PayFast payment page. Without those credentials, the app falls back to a mocked local checkout flow so you can test the experience.
 
 ## Admin dashboard
 
@@ -97,7 +100,7 @@ Use the same key in the dashboard form to view users, subscription status, and u
 
 The app now expects a PostgreSQL connection string via `DATABASE_URL`.
 
-Example:
+Example connection string:
 
 ```bash
 DATABASE_URL=postgresql://user:password@host:5432/database

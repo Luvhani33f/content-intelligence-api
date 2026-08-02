@@ -3,25 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Content Intelligence Admin</title>
+    <title>Closeway Admin</title>
     <style>
       :root {
         color-scheme: dark;
-        --bg: #07111f;
-        --surface: rgba(12, 24, 42, 0.95);
-        --surface-2: #13233c;
-        --text: #eaf2ff;
-        --muted: #88a6ca;
-        --accent: #4ea3ff;
-        --accent-2: #77ffbf;
-        --danger: #ff7575;
+        --bg: #060b14;
+        --surface: rgba(10, 20, 34, 0.95);
+        --surface-2: #14253f;
+        --text: #f7f9ff;
+        --muted: #96a9c2;
+        --accent: #5b8cff;
+        --accent-2: #2ecf84;
+        --danger: #ff7c7c;
+        --border: rgba(255,255,255,0.08);
       }
 
       * { box-sizing: border-box; }
       body {
         margin: 0;
         font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
-        background: linear-gradient(135deg, var(--bg), #15253f 70%, #0f1b2e);
+        background: linear-gradient(135deg, var(--bg), #12223b 70%, #0d1526);
         color: var(--text);
         min-height: 100vh;
       }
@@ -36,18 +37,14 @@
         gap: 16px;
         align-items: center;
         padding: 24px;
-        border: 1px solid rgba(255,255,255,0.08);
+        border: 1px solid var(--border);
         background: var(--surface);
-        border-radius: 20px;
-        box-shadow: 0 18px 50px rgba(0,0,0,0.22);
+        border-radius: 22px;
+        box-shadow: 0 20px 55px rgba(0,0,0,0.24);
       }
       .hero h1 { margin: 0 0 8px; font-size: 1.8rem; }
       .hero p { margin: 0; color: var(--muted); }
-      .key-form {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
+      .key-form { display: flex; gap: 10px; flex-wrap: wrap; }
       input, select, button {
         font: inherit;
         padding: 10px 12px;
@@ -60,7 +57,7 @@
         color: var(--text);
       }
       button {
-        background: linear-gradient(135deg, var(--accent), #2a6fe6);
+        background: linear-gradient(135deg, var(--accent), #2d6cf5);
         color: white;
         cursor: pointer;
         border: none;
@@ -76,32 +73,15 @@
         padding: 18px 20px;
         border-radius: 16px;
         background: var(--surface);
-        border: 1px solid rgba(255,255,255,0.08);
+        border: 1px solid var(--border);
       }
       .metric { font-size: 2rem; font-weight: 700; margin-top: 6px; }
       .muted { color: var(--muted); }
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 20px;
-        overflow: hidden;
-        border-radius: 16px;
-      }
-      th, td {
-        padding: 12px 14px;
-        text-align: left;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
-      }
+      table { width: 100%; border-collapse: collapse; margin-top: 20px; overflow: hidden; border-radius: 16px; }
+      th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.08); }
       th { background: rgba(255,255,255,0.06); }
       tr:hover { background: rgba(255,255,255,0.03); }
-      .pill {
-        display: inline-block;
-        border-radius: 999px;
-        padding: 6px 10px;
-        background: rgba(119,255,191,0.16);
-        color: var(--accent-2);
-        font-size: 0.85rem;
-      }
+      .pill { display: inline-block; border-radius: 999px; padding: 6px 10px; background: rgba(46, 207, 132, 0.16); color: var(--accent-2); font-size: 0.85rem; }
       .status-paid { color: var(--accent-2); }
       .status-pending { color: var(--danger); }
       .status-free { color: var(--muted); }
@@ -115,8 +95,8 @@
     <div class="shell">
       <section class="hero">
         <div>
-          <h1>Content Intelligence Admin</h1>
-          <p>Manage customers, plans, and usage from one place.</p>
+          <h1>Closeway Operations Console</h1>
+          <p>Monitor customers, updates, and usage activity from a single control panel.</p>
         </div>
         <form class="key-form" id="key-form">
           <input id="admin-key" type="password" placeholder="Admin API key" />
