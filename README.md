@@ -1,36 +1,72 @@
 # Closeway Content Intelligence API
 
-A polished SaaS API for content analysis with secure access, plan-aware usage limits, and billing-ready checkout flows.
+Closeway provides a polished content intelligence API for teams that want secure access, predictable usage limits, and billing-ready subscription workflows in one product.
 
-It includes:
+## Overview
 
-- user registration and login
-- JWT-based authentication
-- per-user API keys
+This project combines:
+
+- secure user registration and login
+- JWT-based authentication and API-key access
 - plan-based request quotas
-- billing checkout hooks for subscriptions
+- subscription and checkout hooks for billing integration
+- a polished public landing page and admin console
 
-## Features
+## Key features
 
 - Starter, Growth, and Scale plans
-- Monthly request caps
-- JSON responses designed for app integrations
-- A polished landing page and pricing UI for product launches
-- PayFast checkout flow ready once credentials are configured
+- Monthly request caps with usage visibility
+- JSON responses suitable for internal tools and external integrations
+- PayFast-ready checkout flow for live billing environments
+- Admin dashboard for viewing users and managing plans
 
-## Run locally
+## Quick start
 
-Create an environment file and set your runtime values before starting the API:
+### Prerequisites
+
+- Node.js 18+
+- PostgreSQL database
+- A valid environment configuration
+
+### Install dependencies
 
 ```bash
 cd money-api
-cp .env.example .env  # if you keep a local example file
+npm install
+```
+
+### Environment setup
+
+Create a local environment file and set the required values:
+
+```bash
+cp .env.example .env
+```
+
+Example variables:
+
+```bash
+JWT_SECRET=your-secret-key
+ADMIN_API_KEY=your-admin-key
+DATABASE_URL=postgresql://user:password@host:5432/database
+PORT=3000
+```
+
+### Start the server
+
+```bash
 npm start
+```
+
+The app will be available at:
+
+```bash
+http://localhost:3000
 ```
 
 ## Authentication
 
-Register a user:
+### Register a user
 
 ```bash
 curl -X POST http://localhost:3000/auth/register \
@@ -38,7 +74,7 @@ curl -X POST http://localhost:3000/auth/register \
   -d '{"email":"your-email@company.com","password":"your-secure-password","planId":"pro"}'
 ```
 
-Login:
+### Login
 
 ```bash
 curl -X POST http://localhost:3000/auth/login \
@@ -46,33 +82,30 @@ curl -X POST http://localhost:3000/auth/login \
   -d '{"email":"your-email@company.com","password":"your-secure-password"}'
 ```
 
-Analyze content using a JWT:
+### Analyze content with a JWT
 
 ```bash
 curl -X POST http://localhost:3000/v1/analyze \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"text":"This is a powerful article for a modern API company."}'
+  -d '{"text":"This is a sample request for a modern content intelligence API."}'
 ```
 
-Or use an API key:
+### Analyze content with an API key
 
 ```bash
 curl -X POST http://localhost:3000/v1/analyze \
   -H "X-API-Key: <api-key>" \
   -H "Content-Type: application/json" \
-  -d '{"text":"This is a powerful article for a modern API company."}'
+  -d '{"text":"This is a sample request for a modern content intelligence API."}'
 ```
 
 ## Billing
 
-The app uses PayFast for checkout. Set your production values in the environment:
+The application includes a billing flow that can be connected to PayFast. Configure these values in your environment when you are ready to go live:
 
 ```bash
 PUBLIC_BASE_URL=https://api.yourcompany.com
-```
-
-```bash
 PAYFAST_MERCHANT_ID=your-payfast-merchant-id
 PAYFAST_MERCHANT_KEY=your-payfast-merchant-key
 PAYFAST_PASSPHRASE=your-payfast-passphrase
@@ -82,28 +115,20 @@ PAYFAST_CANCEL_URL=https://api.yourcompany.com/billing/cancel
 PAYFAST_NOTIFY_URL=https://api.yourcompany.com/billing/payfast/notify
 ```
 
-When PayFast credentials are configured, the checkout endpoint redirects customers to the PayFast payment page. Without those credentials, the app falls back to a mocked local checkout flow so you can test the experience.
+Without PayFast credentials, the app falls back to local mock checkout behavior for testing.
 
 ## Admin dashboard
 
-The app now includes a simple admin dashboard at `/admin`.
+The admin portal is available at `/admin`.
 
-To use it, set an `ADMIN_API_KEY` and visit:
+Set an `ADMIN_API_KEY` and open:
 
 ```bash
 https://your-domain/admin
 ```
 
-Use the same key in the dashboard form to view users, subscription status, and update a customer plan.
+Use the same key in the dashboard form to view users, check subscription state, and update customer plans.
 
-## Database
+## Deployment
 
-The app now expects a PostgreSQL connection string via `DATABASE_URL`.
-
-Example connection string:
-
-```bash
-DATABASE_URL=postgresql://user:password@host:5432/database
-```
-
-Render can provide this automatically when you attach a managed PostgreSQL database.
+This project is ready for deployment on platforms such as Render, Railway, or any Node.js-compatible host with PostgreSQL support.
